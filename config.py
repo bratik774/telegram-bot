@@ -20,3 +20,16 @@ if _admins:
         for x in _admins.split(",")
         if x.strip().isdigit()
     ]
+# === Ads autopost ===
+ADS_AUTOPOST_EVERY_MIN = int(
+    os.getenv("ADS_AUTOPOST_EVERY_MIN", "180")
+)
+
+# === Economy ===
+TICKET_PRICE_STARS = int(
+    os.getenv("TICKET_PRICE_STARS", "1")
+)
+
+VIP_DAYS_DEFAULT = int(
+    os.getenv("VIP_DAYS_DEFAULT", "30")
+)
