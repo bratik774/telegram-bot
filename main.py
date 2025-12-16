@@ -1,216 +1,165 @@
+import logging
 import os
-import sqlite3
-import time
-from datetime import datetime
+import random
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
 # =========================
-# CONFIG (Railway Variables)
+# CONFIG
 # =========================
-TOKEN = os.getenv("TOKEN", "").strip()
-ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "").strip()
-
+TOKEN = os.getenv("TOKEN")  # ОБОВʼЯЗКОВО
 ADMIN_IDS = set()
-if ADMIN_IDS_RAW:
-    for part in ADMIN_IDS_RAW.replace(" ", "").split(","):
-        if part.isdigit():
-            ADMIN_IDS.add(int(part))
 
-JACKPOT_PERCENT = float(os.getenv("JACKPOT_PERCENT", "0.15"))
-DRAW_INTERVAL_HOURS = int(os.getenv("DRAW_INTERVAL_HOURS", "24"))
+raw_admins = os.getenv("ADMIN_IDS", "")
+for x in raw_admins.replace(" ", "").split(","):
+    if x.isdigit():
+        ADMIN_IDS.add(int(x))
 
-# ===== ADMIN SECRET =====
-ADMIN_SECRET = "ADMIN-8472"
-ADMIN_SECRET_ENABLED = True  # ❗ після налаштування постав False
+if not TOKEN:
+    raise RuntimeError("❌ TOKEN not set in environment variables")
 
 # =========================
-# DB
+# LOGGING
 # =========================
-db = sqlite3.connect("bot.db", check_same_thread=False)
-db.row_factory = sqlite3.Row
-
-
-def now():
-    return datetime.utcnow().isoformat(timespec="seconds")
-
-
-def init_db():
-    db.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        stars INTEGER DEFAULT 0,
-        tickets INTEGER DEFAULT 0,
-        vip_until TEXT,
-        lang TEXT DEFAULT 'en'
-    );
-
-    CREATE TABLE IF NOT EXISTS ticket_packs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tickets INTEGER,
-        price REAL,
-        active INTEGER DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS ref_offers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        url TEXT,
-        reward_type TEXT,
-        reward INTEGER,
-        active INTEGER DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS jackpot (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        amount REAL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS system (
-        key TEXT PRIMARY KEY,
-        value TEXT
-    );
-    """)
-    db.execute("INSERT OR IGNORE INTO jackpot(id, amount) VALUES(1, 0)")
-    db.execute("INSERT OR IGNORE INTO system(key, value) VALUES('last_draw', '0')")
-    db.commit()
-
+logging.basicConfig(level=logging.INFO)
 
 # =========================
-# TEXTS
+# SIMPLE ADS STORAGE
 # =========================
-TEXT = {
-    "en": {
-        "welcome": "⭐ Welcome!\n🎟 1 Ticket = $1\n\nChoose action 👇",
-        "lang_set": "✅ Language updated",
-        "not_admin": "❌ Admin only",
-        "seed_done": "✅ Ticket packs added",
-    },
-    "ua": {
-        "welcome": "⭐ Ласкаво просимо!\n🎟 1 квиток = $1\n\nОбери дію 👇",
-        "lang_set": "✅ Мову змінено",
-        "not_admin": "❌ Тільки для адміна",
-        "seed_done": "✅ Пакети додано",
-    }
-}
-
-
-def get_lang(uid):
-    row = db.execute("SELECT lang FROM users WHERE user_id=?", (uid,)).fetchone()
-    return row["lang"] if row else "en"
-
-
-def t(uid, key):
-    return TEXT.get(get_lang(uid), TEXT["en"])[key]
-
+ADS = [
+    "📣 Реклама\n\n🔥 Просування Telegram каналів\n💰 Оплата за результат\n👉 Пиши адміну",
+    "📣 Реклама\n\n🚀 Купуй рекламу в боті\n🎯 Жива аудиторія\n👉 Звертайся до адміна",
+    "📣 Реклама\n\n⭐ Telegram Stars\n🎟 Лотерея\n👉 Запусти рекламу тут",
+]
 
 # =========================
 # HELPERS
 # =========================
-def ensure_user(uid):
-    db.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (uid,))
-    db.commit()
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
 
-
-def is_admin(uid):
-    return uid in ADMIN_IDS
-
-
-# =========================
-# HANDLERS
-# =========================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    ensure_user(uid)
-
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🇺🇸 EN", callback_data="lang:en"),
-            InlineKeyboardButton("🇺🇦 UA", callback_data="lang:ua")
-        ],
-        [InlineKeyboardButton("🎟 Buy Tickets", callback_data="shop")]
+def main_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⭐ Earn", callback_data="earn")],
+        [InlineKeyboardButton("👤 Profile", callback_data="profile")],
+        [InlineKeyboardButton("🎟 Tickets", callback_data="tickets")],
+        [InlineKeyboardButton("🎰 Lottery", callback_data="lottery")],
+        [InlineKeyboardButton("📣 Ads", callback_data="ads")],
     ])
 
-    await update.message.reply_text(t(uid, "welcome"), reply_markup=kb)
-
-
-async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    uid = q.from_user.id
-    lang = q.data.split(":")[1]
-
-    db.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, uid))
-    db.commit()
-
-    await q.edit_message_text(t(uid, "lang_set"))
-
+async def send_auto_ad(context, chat_id):
+    ad = random.choice(ADS)
+    await context.bot.send_message(chat_id, ad)
 
 # =========================
-# ADMIN SECRET COMMAND
+# COMMANDS
 # =========================
-async def claim_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not ADMIN_SECRET_ENABLED:
-        await update.message.reply_text("❌ Admin claim disabled")
-        return
-
-    parts = update.message.text.split()
-    if len(parts) != 2:
-        await update.message.reply_text("Usage: /claim_admin SECRET")
-        return
-
-    if parts[1] != ADMIN_SECRET:
-        await update.message.reply_text("❌ Wrong secret code")
-        return
-
-    uid = update.effective_user.id
-    ADMIN_IDS.add(uid)
-
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"✅ YOU ARE ADMIN NOW\n\n"
-        f"Your Telegram ID:\n{uid}\n\n"
-        f"Add it to Railway → Variables:\nADMIN_IDS={uid}\n"
-        f"Then Redeploy"
+        "👋 Welcome!\n\n"
+        "Earn ⭐ Telegram Stars & 🎟 Lottery Tickets\n"
+        "🎟 1 Ticket = $1\n\n"
+        "Choose an option 👇",
+        reply_markup=main_keyboard()
     )
 
+    # 🔥 автопоказ реклами
+    await send_auto_ad(context, update.effective_chat.id)
 
-# =========================
-# ADMIN COMMANDS
-# =========================
-async def seed(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not is_admin(uid):
-        await update.message.reply_text(t(uid, "not_admin"))
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Admin only")
         return
 
-    db.execute("INSERT INTO ticket_packs(tickets, price) VALUES(1,1)")
-    db.execute("INSERT INTO ticket_packs(tickets, price) VALUES(5,4)")
-    db.execute("INSERT INTO ticket_packs(tickets, price) VALUES(10,8)")
-    db.commit()
+    await update.message.reply_text(
+        "🛠 Admin Panel\n\n"
+        "✔ Bot is running\n"
+        "✔ Ads enabled\n"
+        "✔ Lottery enabled\n\n"
+        "Команди:\n"
+        "/add_ad текст реклами"
+    )
 
-    await update.message.reply_text(t(uid, "seed_done"))
+async def add_ad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
 
+    text = update.message.text.replace("/add_ad", "").strip()
+    if not text:
+        await update.message.reply_text("❌ Напиши текст реклами")
+        return
+
+    ADS.append("📣 Реклама\n\n" + text)
+    await update.message.reply_text("✅ Рекламу додано")
 
 # =========================
-# RUN
+# CALLBACKS
+# =========================
+async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "earn":
+        await query.edit_message_text(
+            "⭐ Earn\n\n"
+            "🔹 Запрошуй друзів\n"
+            "🔹 Виконуй оффери\n"
+            "🔹 Отримуй білети"
+        )
+
+    elif query.data == "profile":
+        await query.edit_message_text(
+            "👤 Profile\n\n"
+            "⭐ Stars: 0\n"
+            "🎟 Tickets: 0\n"
+            "👑 VIP: No"
+        )
+
+    elif query.data == "tickets":
+        await query.edit_message_text(
+            "🎟 Tickets Shop\n\n"
+            "1 Ticket = $1\n"
+            "Автозарахування після оплати"
+        )
+
+    elif query.data == "lottery":
+        await query.edit_message_text(
+            "🎰 Lottery\n\n"
+            "💰 Jackpot росте\n"
+            "⏱ Скоро розіграш"
+        )
+
+    elif query.data == "ads":
+        await query.edit_message_text(
+            "📣 Реклама в боті\n\n"
+            "🔹 Закріплене повідомлення\n"
+            "🔹 Автопоказ юзерам\n"
+            "🔹 Оффери\n\n"
+            "💰 Ціни:\n"
+            "$10 / 24 години\n"
+            "$0.01 / показ\n\n"
+            "📩 Пиши адміну"
+        )
+
+# =========================
+# START APP
 # =========================
 def main():
-    if not TOKEN:
-        raise RuntimeError("TOKEN is empty")
-
-    init_db()
-
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("claim_admin", claim_admin))
-    app.add_handler(CommandHandler("seed", seed))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CommandHandler("add_ad", add_ad))
+    app.add_handler(CallbackQueryHandler(callbacks))
 
-    app.add_handler(CallbackQueryHandler(set_lang, pattern="lang:"))
-
+    print("✅ Bot started with ADS")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
