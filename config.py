@@ -35,3 +35,7 @@ VIP_DAYS_DEFAULT = int(
 )
 # === Database ===
 DB_PATH = os.getenv("DB_PATH", "bot.sqlite3")
+# === Referral percentages ===
+REF_LVL1_PCT = float(os.getenv("REF_LVL1_PCT", "0.10"))  # 10%
+REF_LVL2_PCT = float(os.getenv("REF_LVL2_PCT", "0.05"))  # 5%
+REF_LVL3_PCT = float(os.getenv("REF_LVL3_PCT", "0.02"))  # 2%
