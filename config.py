@@ -33,3 +33,5 @@ TICKET_PRICE_STARS = int(
 VIP_DAYS_DEFAULT = int(
     os.getenv("VIP_DAYS_DEFAULT", "30")
 )
+# === Database ===
+DB_PATH = os.getenv("DB_PATH", "bot.sqlite3")
