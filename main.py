@@ -3,6 +3,9 @@ import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
+
+from modules.ref_tasks import add_ref_task, get_active_tasks, complete_task
+
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
@@ -51,6 +54,18 @@ def main_menu(lang: str):
     )
 
 
+async def cmd_add_ref_task(update, context):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    text = " ".join(context.args)
+    if "|" not in text:
+        await update.message.reply_text("Формат: /add_task Назва | https://link")
+        return
+
+    title, link = [x.strip() for x in text.split("|", 1)]
+    add_ref_task(title, link)
+    await update.message.reply_text("✅ Реф-завдання додано")
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     user = get_or_create_user(u.id, u.username, u.first_name)
@@ -69,8 +84,35 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu(lang)
     )
 
+async def cmd_task_done(update, context):
+    uid = update.effective_user.id
+    if not context.args:
+        return
 
-async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    task_id = int(context.args[0])
+    ok = complete_task(uid, task_id)
+
+    if ok:
+        await update.message.reply_text("⭐ Завдання виконано! +1 зірочка")
+    else:
+        await update.message.reply_text("❌ Уже виконано або помилка")
+
+async def cmd_tasks(update, context):
+    user = get_user(update.effective_user.id)
+    lang = user.get("lang", "ua")
+
+    tasks = get_active_tasks()
+    if not tasks:
+        await update.message.reply_text("Немає доступних завдань")
+        return
+
+    text = "📋 Завдання:\n\n"
+    for t in tasks:
+        text += f"🔗 {t['title']}\n{t['link']}\n/task_done {t['id']}\n\n"
+
+    await update.message.reply_text(text)
+
+    async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     user = get_user(u.id) or {}
     lang = user.get("lang", "ua")
@@ -361,6 +403,10 @@ def main():
     app.job_queue.run_repeating(job_ads_autopost, interval=ADS_AUTOPOST_EVERY_MIN * 60, first=30)
 
     app.run_polling(allowed_updates=None)
+
+app.add_handler(CommandHandler("add_task", cmd_add_ref_task))
+app.add_handler(CommandHandler("tasks", cmd_tasks))
+app.add_handler(CommandHandler("task_done", cmd_task_done))
 
 
 if __name__ == "__main__":
