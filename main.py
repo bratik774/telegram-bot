@@ -14,6 +14,7 @@ from modules.tickets import get_tickets
 from modules.vip import is_vip
 from modules.lottery import join_lottery, draw_winner
 
+# ---------------- logging ----------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -31,6 +32,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         first_name=user.first_name,
     )
 
+    # реферальний старт
     if context.args:
         try:
             ref_id = int(context.args[0])
@@ -42,15 +44,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vip_status = "👑 VIP" if is_vip(user.id) else "—"
 
     await update.message.reply_text(
-        f"⭐ Telegram Stars Bot\n\n"
+        "⭐ Telegram Stars Bot\n\n"
         f"👤 ID: {user.id}\n"
         f"🎟 Білети: {tickets}\n"
         f"VIP: {vip_status}\n\n"
-        f"/balance — баланс\n"
-        f"/lottery_join <n> — участь у лотереї\n"
+        "/balance — баланс\n"
+        "/lottery_join <n> — участь у лотереї\n"
     )
 
 
+# ---------------- /balance ----------------
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     tickets = get_tickets(user.id)
@@ -61,6 +64,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ---------------- /lottery_join ----------------
 async def lottery_join_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Використання: /lottery_join 5")
@@ -76,6 +80,7 @@ async def lottery_join_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 
+# ---------------- /lottery_draw ----------------
 async def lottery_draw_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok, msg = draw_winner()
     await update.message.reply_text(msg)
@@ -85,12 +90,10 @@ async def lottery_draw_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     logger.info("Starting bot...")
 
+    # ініціалізація БД
     init_db()
 
     application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # 🔥 КРИТИЧНО ВАЖЛИВО
-    application.bot.delete_webhook(drop_pending_updates=True)
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("balance", balance))
@@ -103,3 +106,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
