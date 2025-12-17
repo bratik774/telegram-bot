@@ -1,6 +1,4 @@
-import asyncio
 import logging
-import time
 
 from telegram import Update
 from telegram.ext import (
@@ -33,7 +31,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         first_name=user.first_name,
     )
 
-    # реферал
     if context.args:
         try:
             ref_id = int(context.args[0])
@@ -44,22 +41,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tickets = get_tickets(user.id)
     vip_status = "👑 VIP" if is_vip(user.id) else "—"
 
-    text = (
-        "⭐ **Telegram Stars Bot**\n\n"
-        f"👤 ID: `{user.id}`\n"
-        f"🎟 Білети: **{tickets}**\n"
+    await update.message.reply_text(
+        f"⭐ Telegram Stars Bot\n\n"
+        f"👤 ID: {user.id}\n"
+        f"🎟 Білети: {tickets}\n"
         f"VIP: {vip_status}\n\n"
-        "Команди:\n"
-        "/start — старт\n"
-        "/balance — баланс\n"
-        "/lottery_join <n> — увійти в лотерею\n"
-        "/lottery_draw — розіграш (адмін)\n"
+        f"/balance — баланс\n"
+        f"/lottery_join <n> — участь у лотереї\n"
     )
 
-    await update.message.reply_text(text, parse_mode="Markdown")
 
-
-# ---------------- balance ----------------
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     tickets = get_tickets(user.id)
@@ -70,8 +61,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ---------------- lottery join ----------------
-async def lottery_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def lottery_join_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Використання: /lottery_join 5")
         return
@@ -86,31 +76,30 @@ async def lottery_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 
-# ---------------- lottery draw (admin later) ----------------
 async def lottery_draw_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok, msg = draw_winner()
     await update.message.reply_text(msg)
 
 
-# ---------------- main ----------------
-async def main():
+# ---------------- ENTRYPOINT ----------------
+def main():
     logger.info("Starting bot...")
 
     init_db()
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # ❗ ВАЖЛИВО: скидаємо webhook
-    await app.bot.delete_webhook(drop_pending_updates=True)
+    # 🔥 КРИТИЧНО ВАЖЛИВО
+    application.bot.delete_webhook(drop_pending_updates=True)
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("lottery_join", lottery_join))
-    app.add_handler(CommandHandler("lottery_draw", lottery_draw_cmd))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("balance", balance))
+    application.add_handler(CommandHandler("lottery_join", lottery_join_cmd))
+    application.add_handler(CommandHandler("lottery_draw", lottery_draw_cmd))
 
     logger.info("Bot started, polling...")
-    await app.run_polling(allowed_updates=None)
+    application.run_polling(allowed_updates=None)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
