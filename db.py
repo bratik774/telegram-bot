@@ -146,3 +146,21 @@ def top_donors(limit: int = 5):
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+        db.execute("""
+        CREATE TABLE IF NOT EXISTS referral_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            link TEXT,
+            reward_stars INTEGER DEFAULT 1,
+            active INTEGER DEFAULT 1
+        )
+        """)
+
+        db.execute("""
+        CREATE TABLE IF NOT EXISTS referral_task_logs (
+            user_id INTEGER,
+            task_id INTEGER,
+            completed INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, task_id)
+        )
+        """)
