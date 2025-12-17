@@ -1,85 +1,66 @@
 import time
 import random
+from config import LOTTERY_PERIOD_HOURS
 from db import get_db
-from modules.tickets import get_tickets, add_tickets
 
+def get_current_cycle():
+    with get_db() as db:
+        c = db.execute("SELECT * FROM lottery_cycles ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(c) if c else None
 
-def ensure_round_open() -> int:
+def time_left_str(ends_at: int) -> str:
+    left = int(ends_at) - int(time.time())
+    if left <= 0:
+        return "00:00:00"
+    h = left // 3600
+    m = (left % 3600) // 60
+    s = left % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+def join_lottery(cycle_id: int, user_id: int, tickets: int):
     with get_db() as db:
         row = db.execute(
-            "SELECT id FROM lottery_round WHERE status='open' ORDER BY id DESC LIMIT 1"
+            "SELECT tickets FROM lottery_entries WHERE cycle_id=? AND user_id=?",
+            (cycle_id, user_id),
         ).fetchone()
-
         if row:
-            return int(row["id"])
+            db.execute(
+                "UPDATE lottery_entries SET tickets=tickets+? WHERE cycle_id=? AND user_id=?",
+                (tickets, cycle_id, user_id),
+            )
+        else:
+            db.execute(
+                "INSERT INTO lottery_entries(cycle_id, user_id, tickets) VALUES (?,?,?)",
+                (cycle_id, user_id, tickets),
+            )
 
-        now = int(time.time())
-        cur = db.execute(
-            "INSERT INTO lottery_round(status, jackpot_tickets, created_at) VALUES (?,?,?)",
-            ("open", 0, now)
-        )
-        return int(cur.lastrowid)
-
-
-def join_lottery(user_id: int, tickets: int) -> tuple[bool, str]:
-    if tickets <= 0:
-        return False, "❌ Кількість білетів має бути більше 0"
-
-    have = get_tickets(user_id)
-    if have < tickets:
-        return False, f"❌ Недостатньо білетів. У тебе {have}"
-
-    round_id = ensure_round_open()
-    now = int(time.time())
-
+def pick_winner(cycle_id: int):
     with get_db() as db:
-        db.execute(
-            "UPDATE balances SET tickets = tickets - ? WHERE user_id=?",
-            (tickets, user_id)
-        )
-        db.execute(
-            "INSERT INTO lottery_entries(round_id, user_id, tickets, created_at) VALUES (?,?,?,?)",
-            (round_id, user_id, tickets, now)
-        )
-        db.execute(
-            "UPDATE lottery_round SET jackpot_tickets = jackpot_tickets + ? WHERE id=?",
-            (tickets, round_id)
-        )
-
-    return True, f"✅ Ти зайшов у лотерею #{round_id} з {tickets} білетами"
-
-
-def draw_winner() -> tuple[bool, str]:
-    with get_db() as db:
-        round_row = db.execute(
-            "SELECT id, jackpot_tickets FROM lottery_round WHERE status='open' ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-
-        if not round_row:
-            return False, "❌ Немає активного раунду"
-
-        round_id = int(round_row["id"])
-        jackpot = int(round_row["jackpot_tickets"])
-
-        entries = db.execute(
-            "SELECT user_id, tickets FROM lottery_entries WHERE round_id=?",
-            (round_id,)
+        rows = db.execute(
+            "SELECT user_id, tickets FROM lottery_entries WHERE cycle_id=?",
+            (cycle_id,),
         ).fetchall()
+    pool = []
+    for r in rows:
+        pool.extend([int(r["user_id"])] * int(r["tickets"]))
+    if not pool:
+        return None
+    return random.choice(pool)
 
-        if not entries or jackpot <= 0:
-            return False, "❌ У цьому раунді немає ставок"
+def close_cycle_and_start_new():
+    now = int(time.time())
+    with get_db() as db:
+        cycle = db.execute("SELECT * FROM lottery_cycles ORDER BY id DESC LIMIT 1").fetchone()
+        if not cycle:
+            db.execute("INSERT INTO lottery_cycles(ends_at, started_at, closed) VALUES (?,?,0)", (now + LOTTERY_PERIOD_HOURS * 3600, now))
+            return None, None
 
-        pool = []
-        for e in entries:
-            pool.extend([int(e["user_id"])] * int(e["tickets"]))
+        cycle = dict(cycle)
+        if cycle["closed"] == 1:
+            return None, None
 
-        winner = random.choice(pool)
-        now = int(time.time())
+        winner = pick_winner(cycle["id"])
+        db.execute("UPDATE lottery_cycles SET winner_id=?, closed=1 WHERE id=?", (winner, cycle["id"]))
+        db.execute("INSERT INTO lottery_cycles(ends_at, started_at, closed) VALUES (?,?,0)", (now + LOTTERY_PERIOD_HOURS * 3600, now))
+        return cycle, winner
 
-        db.execute(
-            "UPDATE lottery_round SET status='finished', closed_at=? WHERE id=?",
-            (now, round_id)
-        )
-
-    add_tickets(winner, jackpot, apply_vip=False)
-    return True, f"🏆 Переможець лотереї #{round_id}: {winner}\n🎁 Джекпот: {jackpot} білетів"
