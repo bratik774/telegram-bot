@@ -64,3 +64,20 @@ def close_cycle_and_start_new():
         db.execute("INSERT INTO lottery_cycles(ends_at, started_at, closed) VALUES (?,?,0)", (now + LOTTERY_PERIOD_HOURS * 3600, now))
         return cycle, winner
 
+def distribute_rewards():
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT user_id, tickets FROM users ORDER BY tickets DESC LIMIT 50"
+        ).fetchall()
+
+    for i, r in enumerate(rows, 1):
+        uid = r["user_id"]
+
+        if i <= 5:
+            reward = 300
+        elif i <= 15:
+            reward = 100
+        else:
+            reward = 50
+
+        add_donation(uid, reward, "XTR")
