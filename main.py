@@ -365,6 +365,11 @@ async def job_lottery_check(context: ContextTypes.DEFAULT_TYPE):
         for aid in ADMIN_IDS:
             await context.bot.send_message(aid, f"🎟 Lottery ended. Winner: {winner or 'no one'}")
 
+if user.get("donated_xtr", 0) >= 50:
+    text += "\n💸 Вивід доступний"
+else:
+    text += "\n⛔ Вивід від 50 ⭐"
+
 async def job_ads_autopost(context: ContextTypes.DEFAULT_TYPE):
     if not ADS_CHANNEL_ID:
         return
